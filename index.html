@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DecideQuick: Simple Poll Generator</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.7.1/dist/chart.min.js"></script>
+    <style>
+        :root {
+            --color-primary: #8e44ad;
+            --color-secondary: #f39c12;
+            --color-text: #2c3e50;
+            --color-bg: #ecf0f1;
+            --color-success: #2ecc71;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: var(--color-bg);
+            color: var(--color-text);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .container {
+            background-color: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 6px 15px rgba(0, 0, 0, 0.15);
+            width: 100%;
+            max-width: 600px;
+        }
+
+        h1 {
+            text-align: center;
+            color: var(--color-primary);
+            margin-top: 0;
+        }
+
+        label {
+            display: block;
+            margin-top: 15px;
+            margin-bottom: 5px;
+            font-weight: 600;
+        }
+
+        input[type="text"],
+        textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #bdc3c7;
+            border-radius: 6px;
+            box-sizing: border-box;
+            font-size: 16px;
+        }
+
+        #options-container input {
+            margin-bottom: 10px;
+        }
+
+        .btn {
+            padding: 12px 25px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 18px;
+            font-weight: bold;
+            transition: background-color 0.2s;
+            width: 100%;
+            margin-top: 20px;
+        }
+
+        .btn-primary {
+            background-color: var(--color-primary);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background-color: #9b59b6;
+        }
+
+        .btn-secondary {
+            background-color: #34495e;
+            color: white;
+            width: auto;
+            margin-top: 10px;
+        }
+
+        .btn-secondary:hover {
+            background-color: #2c3e50;
+        }
+
+        /* --- Poll View Styles --- */
+        #poll-view {
+            display: none;
+            text-align: center;
+        }
+
+        #poll-question {
+            font-size: 1.8em;
+            margin-bottom: 20px;
+            color: var(--color-text);
+        }
+
+        .poll-option-btn {
+            width: 100%;
+            background-color: #ecf0f1;
+            color: var(--color-text);
+            border: 2px solid #bdc3c7;
+            text-align: left;
+            margin-bottom: 10px;
+            padding: 15px;
+            font-size: 1.1em;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .poll-option-btn:hover:not(:disabled) {
+            background-color: #e0e0e0;
+            border-color: var(--color-primary);
+        }
+
+        .poll-option-btn:disabled {
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
+        .vote-count {
+            float: right;
+            font-weight: bold;
+            color: var(--color-primary);
+        }
+
+        /* --- Results View Styles --- */
+        #results-view {
+            display: none;
+            margin-top: 30px;
+        }
+        
+        #share-url-container {
+            margin-top: 20px;
+            padding: 15px;
+            border: 1px dashed var(--color-primary);
+            border-radius: 8px;
+            background-color: #fcfcfc;
+            text-align: left;
+        }
+        
+        #share-url-input {
+            margin-top: 5px;
+            cursor: text;
+        }
+
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <div id="create-view">
+            <h1>Create a Quick Poll 🗳️</h1>
+            
+            <label for="poll-question-input">Your Question:</label>
+            <input type="text" id="poll-question-input" placeholder="Example: Where should we order lunch today?">
+            
+            <label>Options (One per line):</label>
+            <textarea id="options-input" rows="4" placeholder="Option A: Pizza&#10;Option B: Tacos&#10;Option C: Sushi"></textarea>
+
+            <button class="btn btn-primary" onclick="createPoll()">Generate Poll Link</button>
+        </div>
+
+        <div id="poll-view">
+            <h2 id="poll-question"></h2>
+            
+            <div id="voting-options">
+                </div>
+            
+            <button class="btn btn-primary" style="background-color: var(--color-secondary);" onclick="showResults()">View Results</button>
+            <button class="btn-secondary" id="close-poll-btn" onclick="closePoll()">Close Poll</button>
+        </div>
+
+        <div id="results-view">
+            <h2>Current Results</h2>
+            <canvas id="poll-chart"></canvas>
+
+            <div id="share-url-container">
+                <p>Share this link for people to vote or view results:</p>
+                <input type="text" id="share-url-input" readonly value="[POLL_LINK_WILL_GO_HERE]">
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Placeholder for the main poll data structure
+        let currentPoll = null;
+        let chartInstance = null;
+        let hasVoted = false;
+
+        // --- View Management ---
+
+        /** Switches the visible section of the application. */
+        function showView(viewId) {
+            document.getElementById('create-view').style.display = 'none';
+            document.getElementById('poll-view').style.display = 'none';
+            document.getElementById('results-view').style.display = 'none';
+
+            document.getElementById(viewId).style.display = 'block';
+        }
+
+        // --- Poll Creation ---
+
+        /** * Parses the form and simulates poll creation.
+         * In a real app, this sends data to the backend via POST request.
+         */
+        function createPoll() {
+            const question = document.getElementById('poll-question-input').value.trim();
+            const optionsInput = document.getElementById('options-input').value.trim();
+            
+            if (!question || !optionsInput) {
+                alert("Please enter a question and at least one option.");
+                return;
+            }
+
+            const options = optionsInput.split('\n')
+                .map(opt => opt.trim())
+                .filter(opt => opt.length > 0);
+
+            if (options.length === 0) {
+                alert("Please enter at least one option.");
+                return;
+            }
+
+            // --- SIMULATION DATA ---
+            const pollId = Math.random().toString(36).substring(2, 8).toUpperCase();
+            currentPoll = {
+                id: pollId,
+                question: question,
+                options: options.map(name => ({ name: name, count: 0 })),
+                status: 'open'
+            };
+            // --- END SIMULATION ---
+
+            // **TODO for Team:** Replace this alert with a fetch API call to your backend
+            // Example: fetch('/api/polls', { method: 'POST', body: JSON.stringify(currentPoll) })
+
+            // Display poll view and update sharing URL
+            document.getElementById('poll-question').textContent = question;
+            document.getElementById('share-url-input').value = `${window.location.origin}/p/${pollId}`;
+            
+            renderVotingOptions();
+            showView('poll-view');
+        }
+
+        // --- Voting Logic ---
+
+        /** Renders the buttons for voters to click. */
+        function renderVotingOptions() {
+            const optionsContainer = document.getElementById('voting-options');
+            optionsContainer.innerHTML = '';
+            
+            currentPoll.options.forEach((option, index) => {
+                const button = document.createElement('button');
+                button.className = 'poll-option-btn';
+                button.innerHTML = `${option.name} <span class="vote-count" id="count-${index}">(${option.count} votes)</span>`;
+                button.onclick = () => submitVote(index);
+                
+                if (currentPoll.status === 'closed' || hasVoted) {
+                    button.disabled = true;
+                }
+
+                optionsContainer.appendChild(button);
+            });
+        }
+
+        /** Submits a vote for a selected option. */
+        function submitVote(optionIndex) {
+            if (currentPoll.status === 'closed' || hasVoted) return;
+
+            // --- SIMULATION DATA UPDATE ---
+            currentPoll.options[optionIndex].count++;
+            hasVoted = true;
+            // --- END SIMULATION ---
+            
+            // **TODO for Team:** Replace this with a fetch API call to your backend
+            // Example: fetch(`/api/polls/${currentPoll.id}/vote`, { method: 'POST', body: JSON.stringify({ optionIndex })})
+
+            renderVotingOptions(); // Re-render to show disabled state and new count
+            alert("Thanks for voting! Your vote has been recorded.");
+            showResults(); // Automatically show results after voting
+        }
+
+        // --- Results Logic ---
+
+        /** Renders the results view and the Chart.js visualization. */
+        function showResults() {
+            if (!currentPoll) return;
+            
+            showView('results-view');
+            renderChart();
+        }
+
+        /** Draws or updates the bar chart using Chart.js. */
+        function renderChart() {
+            const ctx = document.getElementById('poll-chart').getContext('2d');
+            const labels = currentPoll.options.map(opt => opt.name);
+            const data = currentPoll.options.map(opt => opt.count);
+
+            if (chartInstance) {
+                chartInstance.destroy(); // Destroy previous instance
+            }
+
+            chartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Votes',
+                        data: data,
+                        backgroundColor: [
+                            'rgba(142, 68, 173, 0.8)', // Purple
+                            'rgba(243, 156, 18, 0.8)', // Orange
+                            'rgba(46, 204, 113, 0.8)', // Green
+                            'rgba(52, 152, 219, 0.8)'  // Blue
+                        ],
+                        borderColor: 'rgba(255, 255, 255, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: { beginAtZero: true, stepSize: 1 }
+                    },
+                    plugins: {
+                        legend: { display: false }
+                    }
+                }
+            });
+        }
+
+        /** Closes the poll, preventing further voting. */
+        function closePoll() {
+            if (currentPoll.status === 'closed') return;
+            
+            // **TODO for Team:** Send a command to the backend to set status to 'closed'
+            currentPoll.status = 'closed';
+            
+            document.getElementById('close-poll-btn').textContent = "Poll Closed";
+            document.getElementById('close-poll-btn').disabled = true;
+            renderVotingOptions();
+            alert("The poll has been closed. No more votes will be accepted.");
+        }
+
+        // --- INITIAL SETUP ---
+        // Start by showing the creation form
+        showView('create-view');
+
+        // Note: For actual deployment, you'll need router logic to load the poll from the URL
+        // e.g., if the URL is /p/7R2K, loadPoll('7R2K')
+
+    </script>
+</body>
+</html>
